@@ -314,8 +314,6 @@ foreach ($t in 'Windows','CPU','Graphics card','Memory','Storage','Defender','Fi
 
 function Set-Card($title, $text, $level = 'info') {
     $tb = $Script:CardVals[$title]; $tb.Text = $text
-    $hex = switch ($level) { 'ok' {'#2ECC71'} 'warn' {'#F5B83D'} 'bad' {'#FF5C6C'} default {'#FFFFFF'} }
-    $tb.Foreground = Brush $hex
 }
 
 function Update-Dashboard {
