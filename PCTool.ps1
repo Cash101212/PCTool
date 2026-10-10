@@ -1,25 +1,50 @@
 <#
  PCTool GUI - PC Checker (VirusTotal) + Windows/Gaming Optimizer
- Run (any cmd, it asks for admin itself):
-   powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "irm https://raw.githubusercontent.com/Cash101212/PCTool/main/PCTool.ps1 | iex"
+ Run (any cmd, it asks for admin itself and the console stays open):
+   powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Cash101212/PCTool/main/PCTool.ps1 | iex"
  (Upload this file to GitHub as PCTool.ps1)
 #>
 
 $Script:Url = 'https://raw.githubusercontent.com/Cash101212/PCTool/main/PCTool.ps1'
+$Host.UI.RawUI.WindowTitle = 'PCTool - console (keep open)'
+
+function Step([int]$pct, [string]$msg) {
+    $w = 30; $f = [int]($w * $pct / 100)
+    $bar = ('#' * $f) + ('-' * ($w - $f))
+    Write-Host ("  [{0}] {1,3}%  {2}" -f $bar, $pct, $msg) -ForegroundColor Cyan
+}
 
 function Test-Admin {
     ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-# Self-elevate: relaunch the same GitHub command as admin
+Write-Host ''
+Write-Host '  ========== PCTool ==========' -ForegroundColor Magenta
+Write-Host ''
+Step 0 'Starting...'
+
+# Self-elevate: relaunch the same GitHub command as admin (new console, stays open)
 if (-not (Test-Admin)) {
-    $cmd = "irm $Script:Url | iex"
-    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$cmd`""
+    Write-Host '  Not running as admin - asking Windows for permission (UAC prompt)...' -ForegroundColor Yellow
+    try {
+        $cmd = "irm $Script:Url | iex"
+        Start-Process powershell -Verb RunAs -ArgumentList "-NoExit -NoProfile -ExecutionPolicy Bypass -Command `"$cmd`"" -ErrorAction Stop
+        Write-Host '  Admin window launched. You can close this one.' -ForegroundColor Green
+    } catch {
+        Write-Host '  [ERROR] Could not get admin rights (UAC was cancelled or blocked).' -ForegroundColor Red
+        Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host '  Fix: right-click cmd > Run as administrator, then run the command again.' -ForegroundColor Yellow
+    }
     return
 }
 
+$ErrorActionPreference = 'Stop'   # while loading, any problem is reported clearly
+try {
+Step 5 'Running as administrator'
+Step 15 'Loading Windows UI libraries...'
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
+Step 30 'Preparing data folder...'
 $Script:Dir = Join-Path $env:APPDATA 'PCTool'
 New-Item -ItemType Directory -Force -Path $Script:Dir | Out-Null
 $Script:CacheFile = Join-Path $Script:Dir 'vt-cache.json'
@@ -211,7 +236,9 @@ $xaml = @'
 </Window>
 '@
 
+Step 45 'Building the window...'
 $win = [Windows.Markup.XamlReader]::Load([Xml.XmlReader]::Create([IO.StringReader]::new($xaml)))
+Step 60 'Connecting controls...'
 $UI = @{}
 foreach ($n in 'TitleBar','BtnMin','BtnClose','NavDash','NavScan','NavOpt','NavStart','PgDash','PgScan','PgOpt','PgStart',
                'Cards','BtnRefresh','BtnDefender','KeyBox','BtnSaveKey','ChkPremium','BtnScanSys','BtnScanFile','BtnScanFolder',
@@ -235,6 +262,8 @@ function Brush($hex) { [Windows.Media.BrushConverter]::new().ConvertFromString($
 
 function Log($msg, $level = 'info') {
     $c = switch ($level) { 'ok' {'#2ECC71'} 'warn' {'#F5B83D'} 'bad' {'#FF5C6C'} default {'#B5BACB'} }
+    $cc = switch ($level) { 'ok' {'Green'} 'warn' {'Yellow'} 'bad' {'Red'} default {'Gray'} }
+    Write-Host ("  [{0}] {1}" -f $level.ToUpper(), $msg) -ForegroundColor $cc
     $r = [Windows.Documents.Run]::new(("{0:HH:mm:ss}  {1}" -f (Get-Date), $msg))
     $r.Foreground = Brush $c
     $p = [Windows.Documents.Paragraph]::new($r); $p.Margin = [Windows.Thickness]::new(0)
@@ -265,6 +294,7 @@ function Set-Reg($path, $name, $value, $type = 'DWord') {
 }
 
 # ================================================================== Dashboard
+Step 70 'Building dashboard...'
 $Script:CardVals = [ordered]@{}
 function New-Card($title) {
     $x = @"
@@ -509,6 +539,7 @@ function Clear-Junk {
     Log ("Cleaned temp/cache, freed {0:N0} MB." -f (($after - $before)/1MB)) 'ok'
 }
 
+Step 82 'Building optimizer...'
 $Script:Tweaks = @(
     @{ id='restore'; fn={ New-Backup };        title='Create a restore point first';  desc='Lets you roll back everything below from Windows System Restore.'; on=$true }
     @{ id='power';   fn={ Optimize-Power };    title='Ultimate Performance power plan'; desc='Stops the CPU from throttling down. Uses more power on laptops.'; on=$true }
@@ -575,6 +606,7 @@ function Remove-StartupSelected {
     Load-Startup
 }
 
+Step 92 'Wiring up buttons...'
 # ================================================================== Wire up events
 $UI.TitleBar.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch {} })
 $UI.BtnMin.Add_Click({ $win.WindowState = 'Minimized' })
@@ -623,4 +655,21 @@ $win.Add_ContentRendered({
     Update-Dashboard
 })
 
+Step 100 'Done - opening window'
+Write-Host ''
+Write-Host '  PCTool is running. Keep this console open: activity and errors show here.' -ForegroundColor Green
+Write-Host ''
+$ErrorActionPreference = 'Continue'   # once running, one failed action shouldn't kill the app
 [void]$win.ShowDialog()
+Write-Host '  PCTool window closed.' -ForegroundColor Gray
+}
+catch {
+    Write-Host ''
+    Write-Host '  [ERROR] PCTool failed to load:' -ForegroundColor Red
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.InvocationInfo) {
+        Write-Host ("  at line {0}: {1}" -f $_.InvocationInfo.ScriptLineNumber, $_.InvocationInfo.Line.Trim()) -ForegroundColor DarkRed
+    }
+    Write-Host ''
+    Write-Host '  Copy the red text above and send it to get it fixed.' -ForegroundColor Yellow
+}
