@@ -251,7 +251,8 @@ $UI.AdminTag.Text = 'Running as administrator'
 # ================================================================== UI helpers
 function Pump {
     $f = [Windows.Threading.DispatcherFrame]::new()
-    [void][Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke('Background', [Action]{ $f.Continue = $false })
+    $cb = [Windows.Threading.DispatcherOperationCallback]{ param($frame) $frame.Continue = $false; return $null }
+    [void][Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke([Windows.Threading.DispatcherPriority]::Background, $cb, $f)
     [Windows.Threading.Dispatcher]::PushFrame($f)
 }
 function Wait-UI([double]$sec) {
